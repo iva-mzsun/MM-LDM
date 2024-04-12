@@ -4,8 +4,8 @@ Official implementation of the paper:
 
 MM-LDM: Multi-Modal Latent Diffusion Model for Sounding Video Generation
 
-![](https://github.com/iva-mzsun/MM-LDM/blob/main/framework.pdf)
-![](https://github.com/iva-mzsun/MM-LDM/blob/main/AutoEncoder.pdf)
+![](https://github.com/iva-mzsun/MM-LDM/blob/main/framework.png)
+![](https://github.com/iva-mzsun/MM-LDM/blob/main/AutoEncoder.png)
 
 ## TODO
 - [x] Release inference code
