@@ -1,0 +1,232 @@
+model:
+  base_learning_rate: 1e-5
+  target: src.fm_gen.generator_vid_v1.Generator_LDM
+  params:
+    linear_start: 0.00085
+    linear_end: 0.0120
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    channels: 4
+    cond_stage_trainable: false
+    conditioning_key: crossattn
+    monitor: val/loss_simple_ema
+    scale_factor: 0.18215
+    use_ema: False
+    learn_logvar: False
+
+    image_size: 32
+    image_channels: 4
+    audio_latent_size: 8
+    audio_latent_channels: 16
+    video_latent_size: 16
+    video_latent_channels: 16
+    audio_image_key: "audio_img"
+    video_keyframe_key: "key_frames"
+
+    unet_config:
+      target: src.fm_gen.diffusion.dit_vidonly_v1.DiT
+      params:
+        use_fp16: True
+        audio_input_size: 8
+        video_input_size: 16
+        audio_in_channels: 16
+        video_in_channels: 16
+        audio_patch_size: 1
+        video_patch_size: 1
+        hidden_size: 1152
+        depth: 28
+        num_heads: 16
+        mlp_ratio: 4
+        learn_sigma: False
+
+    first_stage_config:
+      target: src.modules.autoencoder.AutoencoderKL
+      params:
+        embed_dim: 4
+        monitor: val/rec_loss
+        ddconfig:
+          double_z: true
+          z_channels: 4
+          resolution: 256
+          in_channels: 3
+          out_ch: 3
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          - 4
+          num_res_blocks: 2
+          attn_resolutions: []
+          dropout: 0.0
+        lossconfig:
+          target: torch.nn.Identity
+        ckpt_path: experiments/FINAL-2023-09-16T21-09-56_landscape_klvae_f8_1/checkpoints/last.ckpt
+        ignore_keys: [
+            loss.logvar,
+            loss.perceptual_loss,
+            loss.discriminator,
+            audio_reconstructer
+        ]
+
+    cond_stage_config: '__is_unconditional__'
+    stable_ae_config:
+      target: src.fm_gen.wrapper_vid_v1.StableAutoencoder
+      params:
+        linear_start: 0.00085
+        linear_end: 0.0120
+        log_every_t: 200
+        timesteps: 1000
+        image_size: 32
+        channels: 4
+        use_ema: False
+        learn_logvar: False
+
+        videoenc_config:
+          target: src.fm_ae.modules.video_enc.VideoContentEnc
+          params:
+            dims: 3
+            image_size: 32
+            in_channels: 4
+            out_channels: 16 # vc shape: [16, 16, 16]
+            model_channels: 320
+            num_res_blocks: 2
+            learnable_content: True
+            attention_resolutions: [ 1, 2 ]
+            channel_mult: [ 1, 2 ]
+            num_head_channels: 64
+            use_checkpoint: True
+            legacy: False
+
+        audioenc_config:
+          target: src.fm_ae.modules.audio_enc.AudioContentEnc
+          params:
+            dims: 3
+            image_size: 32
+            in_channels: 4
+            out_channels: 16 # vc shape: [8, 8, 16]
+            model_channels: 320
+            num_res_blocks: 2
+            learnable_content: True
+            attention_resolutions: [ 1, 2, 4 ]
+            channel_mult: [ 1, 2, 4 ]
+            num_head_channels: 64
+            use_checkpoint: True
+            legacy: False
+        audio_reconstructer_config:
+          target: src.modules.mel_audio_reconstructed.wav_recon.WavReconstruction
+          params:
+            vocoder_path: 'models/cp_hifigan'
+
+        unet_config:
+          target: src.fm_ae.autoencoder_vid_v1.AEUnetModel
+          params:
+            image_size: 32
+            in_channels: 4
+            out_channels: 4
+            model_channels: 320
+            attention_resolutions: [ 4, 2, 1 ]
+            num_res_blocks: 2
+            channel_mult: [ 1, 2, 4, 4 ]
+            num_heads: 8
+            use_spatial_transformer: True
+            transformer_depth: 1
+            context_dim: 768
+            use_checkpoint: True
+            legacy: False
+
+        decode_sample_cfg:
+          use_ddim: True
+          ddim_steps: 50
+          ddim_eta: 0.0
+          ucgs_audio: 2.5
+          ucgs_video: 2.5
+        ckpt_path: experiments/2024-01-22T09-06-44_landscape_ae_v1_vidonly/checkpoints/epoch=0047-step=025536.ckpt
+        ignore_keys: [
+            first_stage_model,
+            discriminator
+        ]
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    wrap: False
+    batch_size: 20
+    num_workers: 8
+    train:
+      target: src.data.custom_dataset.VideoAudioDataset
+      params:
+        video_fps: 10
+        audio_fps: 44100
+        video_manager_cfg:
+          flip_p: 0.5
+          img_size: 256
+          full_video_length: 16
+          content_frame_idx: [ 0, 5, 10, 15 ]
+        audio_manager_cfg:
+          img_size: 256
+          audio_length: 70560 # 1.6 * 44100
+        ids_file: datasets/landscape/trainval_ids.json
+        video_root: datasets/landscape/video_frame/trainval
+#        video_root: datasets/landscape/video_frame/trainval/FPS_10
+        audio_root: datasets/landscape/video_audio/trainval
+#        audio_root: datasets/landscape/video_audio/trainval/FPS_44100
+
+    validation:
+      target: src.data.custom_dataset.VideoAudioDataset
+      params:
+        max_data_num: 2048
+        video_fps: 10
+        audio_fps: 44100
+        video_manager_cfg:
+          flip_p: 0.5
+          img_size: 256
+          full_video_length: 16
+          content_frame_idx: [ 0, 5, 10, 15 ]
+        audio_manager_cfg:
+          img_size: 256
+          audio_length: 70560 # 1.6 * 44100
+        ids_file: datasets/landscape/trainval_ids.json
+        video_root: datasets/landscape/video_frame/trainval
+#        video_root: datasets/landscape/video_frame/trainval/FPS_10
+        audio_root: datasets/landscape/video_audio/trainval
+#        audio_root: datasets/landscape/video_audio/trainval/FPS_44100
+
+
+lightning:
+  trainer:
+#    val_check_interval: 0.5
+    check_val_every_n_epoch: 5
+    ckpt_load_strict: False
+#    ignore_keys: [ "first_stage_model" ]
+    accelerator: 'gpu'
+    devices: 8
+    log_gpu_memory: all
+    max_epochs: 1000
+    precision: 16
+    auto_select_gpus: False
+    strategy:
+      target: strategies.DDPStrategy
+      params:
+        find_unused_parameters: False
+    log_every_n_steps: 2
+    logger: True
+    default_root_dir: "experiments/"
+  modelcheckpoint:
+    target: lightning.pytorch.callbacks.ModelCheckpoint
+    params:
+      every_n_epochs: 5
+      save_top_k: 2
+      save_last: False
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        log_imgs: False
+  logger:
+    wandb:
+      target: lightning.pytorch.loggers.WandbLogger
+      params:
+          project: SoundingVideo
+          group: landscape

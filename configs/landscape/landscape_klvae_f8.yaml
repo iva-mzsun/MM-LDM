@@ -1,0 +1,114 @@
+model:
+  base_learning_rate: 1e-5
+  target: src.modules.autoencoder_mm.AutoencoderKL
+  params:
+    embed_dim: 4
+    monitor: val/rec_loss
+    video_key: tar_frames
+    audio_key: audio_img
+    fix_encoder: True
+    ckpt_path: models/autoencoderkl.pth # ckpt
+    ignore_keys: [
+        loss.logvar,
+        loss.perceptual_loss,
+        loss.discriminator
+    ]
+    lossconfig:
+      target: src.modules.losses.LPIPSWithDiscriminator
+      params:
+        disc_start: 10001
+        kl_weight: 0.000001
+        disc_weight: 0.5
+    ddconfig:
+      double_z: True
+      z_channels: 4
+      resolution: 256
+      in_channels: 3
+      out_ch: 3
+      ch: 128
+      ch_mult: [ 1,2,4,4 ]  # num_down = len(ch_mult)-1
+      num_res_blocks: 2
+      attn_resolutions: [ ]
+      dropout: 0.0
+    audio_reconstructer_config:
+      target: src.modules.mel_audio_reconstructed.wav_recon.WavReconstruction
+      params:
+        vocoder_path: 'models/cp_hifigan'
+
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    wrap: False
+    batch_size: 10
+    num_workers: 8
+    train:
+      target: src.data.custom_dataset.VideoAudioDataset
+      params:
+        video_fps: 10
+        audio_fps: 44100
+        video_manager_cfg:
+          flip_p: 0.5
+          img_size: 256
+          num_tar_frames: 2
+          full_video_length: 16
+          content_frame_idx: [ 0, 5, 10, 15 ]
+        audio_manager_cfg:
+          img_size: 256
+          audio_length: 70560 # 1.6 * 44100
+        ids_file: datasets/landscape/trainval_ids.json
+        video_root: datasets/landscape/video_frame/trainval/FPS_10
+        audio_root: datasets/landscape/video_audio/trainval/FPS_44100
+
+    validation:
+      target: src.data.custom_dataset.VideoAudioDataset
+      params:
+        max_data_num: 256 # 256 # 2048
+        video_fps: 10
+        audio_fps: 44100
+        video_manager_cfg:
+          flip_p: 0.5
+          img_size: 256
+          num_tar_frames: 2 # 2 # 16 when sample
+          full_video_length: 16
+          content_frame_idx: [ 0, 5, 10, 15 ]
+        audio_manager_cfg:
+          img_size: 256
+          audio_length: 70560 # 1.6 * 44100
+        ids_file: datasets/landscape/trainval_ids.json
+        video_root: datasets/landscape/video_frame/trainval/FPS_10
+        audio_root: datasets/landscape/video_audio/trainval/FPS_44100
+
+lightning:
+  trainer:
+    val_check_interval: 0.5
+    ckpt_load_strict: False
+    accelerator: 'gpu'
+    devices: 8
+    log_gpu_memory: all
+    max_epochs: 100
+    precision: 32
+    strategy:
+      target: strategies.DDPStrategy
+      params:
+        find_unused_parameters: True
+    log_every_n_steps: 2
+    logger: True
+    default_root_dir: "experiments/"
+  modelcheckpoint:
+    target: lightning.pytorch.callbacks.ModelCheckpoint
+    params:
+      every_n_epochs: 2
+      save_top_k: 2
+      save_last: False
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        log_imgs: True
+  logger:
+    wandb:
+      target: lightning.pytorch.loggers.WandbLogger
+      params:
+          project: SoundingVideo
+          group: landscape

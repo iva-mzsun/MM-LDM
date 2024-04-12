@@ -1,0 +1,259 @@
+model:
+  base_learning_rate: 1e-4
+  target: src.fm_ae.autoencoder_vid_aud_v13.AutoEncLDM
+  params:
+    kl_loss_weight: 1e-8
+    classify_loss_weight: 1.0
+    contrastive_loss_weight: 1.0
+    linear_start: 0.00085
+    linear_end: 0.0120
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    image_size: 32
+    channels: 4
+    cond_stage_trainable: false
+    conditioning_key: crossattn
+    monitor: val/loss_ema
+    scale_factor: 0.18215
+    use_ema: False
+    learn_logvar: False
+
+    allow_gan: False
+    gan_config:
+      generator_frequency: ~
+      discriminator_frequency: ~
+      generator_loss_weight: 0.1
+      manager:
+        target: src.fm_ae.utils.adversarial_loss.disc_manager
+        params:
+          type: audio_video
+      loss:
+        target: src.fm_ae.utils.adversarial_loss.gan_loss
+        params:
+          loss_type: hinge
+      discriminator:
+        target: src.fm_ae.modules.discriminator.ImageDiscriminator
+        params:
+          dims: 3
+          image_size: 256
+          in_channels: 3
+          model_channels: 32
+          num_res_blocks: 1
+          spatial_attention_resolutions: [ 32 ]
+          temporal_attention_resolutions: [ 4, 8, 16 ]
+          channel_mult: [ 1, 2, 3, 4, 4, 6, 6 ] # [1, 2, 4, 8, 16, 32, 32 ]
+          num_head_channels: 32
+          use_checkpoint: True
+          legacy: False
+          temporal_embeddings: True
+
+    class_key: "class_id"
+    classify_head_cfg:
+      target: src.fm_ae.modules.heads_v11.ClassifyHeadandLoss
+      params:
+        num_class: 60
+        in_channels: 768
+    contrastive_head_cfg:
+      target: src.fm_ae.modules.heads_v11.ContrastiveHeadandLoss
+      params:
+        in_channels: 768
+        model_channels: 256
+
+    video_keyframe_key: "key_frames"
+    video_tarframe_key: "tar_frames"
+    video_tarframe_ind_key: "tar_frame_indexes"
+    videoenc_config:
+      target: src.fm_ae.modules.video_enc.VideoContentEnc
+      params:
+        dims: 3
+        image_size: 32
+        in_channels: 4
+        out_channels: 16 # vc shape: [16, 16, 16]
+        model_channels: 320
+        num_res_blocks: 2
+        learnable_content: True
+        attention_resolutions: [ 1, 2 ]
+        channel_mult: [ 1, 2]
+        num_head_channels: 64
+        use_checkpoint: True
+        legacy: False
+    video_projector:
+      target: src.fm_ae.modules.projector_v8.Projector
+      params:
+        dims: 2
+        latent_size: 16
+        in_channels: 16
+        out_channels: 768
+        model_channels: 128
+        num_res_blocks: 3
+        attention_resolutions: [ 1, 2, 4, 8 ]
+        channel_mult: [ 1, 2, 4, 4 ]
+        num_head_channels: 32
+        use_checkpoint: True
+        legacy: False
+
+    audio_image_key: "audio_img"
+    audioenc_config:
+      target: src.fm_ae.modules.audio_enc.AudioContentEnc
+      params:
+        dims: 3
+        image_size: 32
+        in_channels: 4
+        out_channels: 16 # vc shape: [8, 8, 16]
+        model_channels: 320
+        num_res_blocks: 2
+        learnable_content: True
+        attention_resolutions: [ 1, 2, 4 ]
+        channel_mult: [ 1, 2, 4 ]
+        num_head_channels: 64
+        use_checkpoint: True
+        legacy: False
+    audio_reconstructer_config:
+      target: src.modules.mel_audio_reconstructed.wav_recon.WavReconstruction
+      params:
+        vocoder_path: 'models/cp_hifigan'
+    audio_projector:
+      target: src.fm_ae.modules.projector_v8.Projector
+      params:
+        dims: 2
+        latent_size: 8
+        in_channels: 16
+        out_channels: 768
+        model_channels: 128
+        num_res_blocks: 4
+        attention_resolutions: [ 1, 2, 4 ]
+        channel_mult: [ 1, 2, 4 ]
+        num_head_channels: 32
+        use_checkpoint: True
+        legacy: False
+
+    unet_config:
+      target: src.fm_ae.autoencoder_vid_aud_v13.AEUnetModel
+      params:
+        vid_latent_shape: [ 16, 16, 16 ]
+        aud_latent_shape: [ 16, 8, 8 ]
+        num_class: 60 # num of video classes
+        image_size: 32
+        in_channels: 4
+        out_channels: 4
+        model_channels: 320
+        attention_resolutions: [ 4, 2, 1 ]
+        num_res_blocks: 2
+        channel_mult: [ 1, 2, 4, 4 ]
+        num_heads: 8
+        use_spatial_transformer: True
+        transformer_depth: 1
+        context_dim: 768
+        use_checkpoint: True
+        legacy: False
+
+    cond_stage_config: '__is_unconditional__'
+    first_stage_key: "tar_frames" # current video frame
+    first_stage_config:
+      target: src.modules.autoencoder.AutoencoderKL
+      params:
+        embed_dim: 4
+        monitor: val/rec_loss
+        ddconfig:
+          double_z: true
+          z_channels: 4
+          resolution: 256
+          in_channels: 3
+          out_ch: 3
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          - 4
+          num_res_blocks: 2
+          attn_resolutions: []
+          dropout: 0.0
+        lossconfig:
+          target: torch.nn.Identity
+        ckpt_path: experiments/FINAL-2023-09-22T02-54-34_aist_klvae_f8/checkpoints/last.ckpt
+        ignore_keys: [
+            loss.logvar,
+            loss.perceptual_loss,
+            loss.discriminator,
+            audio_reconstructer
+        ]
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    wrap: False
+    batch_size: 20
+    num_workers: 8
+    train:
+      target: src.data.videoaudiodataset_wclass.VideoAudioDataset_wClass
+      params:
+        video_fps: 10
+        audio_fps: 44100
+        video_manager_cfg:
+          flip_p: 0.5
+          img_size: 256
+          full_video_length: 16
+          content_frame_idx: [ 0, 5, 10, 15 ]
+        audio_manager_cfg:
+          img_size: 256
+          audio_length: 70560 # 1.6 * 44100
+        ids_file: datasets/AIST++_crop/trainval_ids.json
+        vid2class_file: datasets/AIST++_crop/vid2class.json
+        video_root: datasets/AIST++_crop/video_frame/trainval/FPS_10
+        audio_root: datasets/AIST++_crop/video_audio/trainval/FPS_44100
+
+    validation:
+      target: src.data.videoaudiodataset_wclass.VideoAudioDataset_wClass
+      params:
+        max_data_num: 2048
+        video_fps: 10
+        audio_fps: 44100
+        video_manager_cfg:
+          flip_p: 0.5
+          img_size: 256
+          full_video_length: 16
+          content_frame_idx: [ 0, 5, 10, 15 ]
+        audio_manager_cfg:
+          img_size: 256
+          audio_length: 70560 # 1.6 * 44100
+        ids_file: datasets/AIST++_crop/trainval_ids.json
+        vid2class_file: datasets/AIST++_crop/vid2class.json
+        video_root: datasets/AIST++_crop/video_frame/trainval/FPS_10
+        audio_root: datasets/AIST++_crop/video_audio/trainval/FPS_44100
+
+lightning:
+  trainer:
+    val_check_interval: 0.5
+    ckpt_load_strict: False
+    ignore_keys: [ "first_stage_model" ]
+    accelerator: 'gpu'
+    devices: 8
+    log_gpu_memory: all
+    max_epochs: 20
+    precision: 16
+    strategy:
+      target: strategies.DDPStrategy
+      params:
+        find_unused_parameters: True
+    log_every_n_steps: 2
+    logger: True
+    default_root_dir: "experiments/"
+  modelcheckpoint:
+    target: lightning.pytorch.callbacks.ModelCheckpoint
+    params:
+      every_n_epochs: 1
+      save_top_k: 2
+      save_last: False
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        log_imgs: True
+  logger:
+    wandb:
+      target: lightning.pytorch.loggers.WandbLogger
+      params:
+          project: SoundingVideo
+          group: aist
