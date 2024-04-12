@@ -12,6 +12,6 @@ MM-LDM: Multi-Modal Latent Diffusion Model for Sounding Video Generation
 
 ## Environment
 
-"""
+```
 pip install -r requirement.txt
-"""
+```
