@@ -2,4 +2,4 @@
 
 Official implementation of the paper: 
 
-** MM-LDM: Multi-Modal Latent Diffusion Model for Sounding Video Generation **
+MM-LDM: Multi-Modal Latent Diffusion Model for Sounding Video Generation
